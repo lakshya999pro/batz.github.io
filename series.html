@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Series Player</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        * { font-family: 'Inter', sans-serif; }
+        .custom-scrollbar::-webkit-scrollbar { width: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #1f2937; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #667eea; border-radius: 4px; }
+    </style>
+</head>
+<body class="bg-gray-900 text-white">
+    <div id="app"></div>
+
+    <script>
+        const BACKEND_URL = 'http://localhost:3000/api';
+
+        class SeriesPlayer {
+            constructor() {
+                const urlParams = new URLSearchParams(window.location.search);
+                this.url = urlParams.get('url');
+                this.id = urlParams.get('id');
+                this.title = urlParams.get('title') || '';
+                
+                this.seriesData = null;
+                this.videoLinks = [];
+                this.playingVideo = null;
+                this.currentEpisode = null;
+                this.hls = null;
+                this.loading = true;
+                this.loadingVideo = false;
+                this.error = '';
+
+                this.init();
+            }
+
+            async init() {
+                await this.loadSeries();
+                this.render();
+            }
+
+            async loadSeries() {
+                try {
+                   // Change this line in series.html
+const response = await fetch(`${BACKEND_URL}/details?url=${encodeURIComponent(this.url)}`);
+                    if (!response.ok) throw new Error('Failed to load series');
+                    this.seriesData = await response.json();
+                    this.title = this.seriesData.title;
+                    
+                    // Load first episode by default
+                    if (this.seriesData.episodes && this.seriesData.episodes.length > 0) {
+                        this.currentEpisode = this.seriesData.episodes[0];
+                        await this.loadVideoLinks(this.currentEpisode.link);
+                    }
+                } catch (e) {
+                    this.error = 'Failed to load series details.';
+                    console.error('Load series error:', e);
+                } finally {
+                    this.loading = false;
+                    this.render();
+                }
+            }
+
+            async loadVideoLinks(episodeUrl) {
+                try {
+                    this.loadingVideo = true;
+                    this.render();
+                    
+                    const response = await fetch(`${BACKEND_URL}/video?url=${encodeURIComponent(episodeUrl)}`);
+                    if (!response.ok) throw new Error('Failed to load video');
+                    const data = await response.json();
+                    
+                    this.videoLinks = data.links || [];
+                    if (this.videoLinks.length > 0 && this.videoLinks[0].url) {
+                        this.playingVideo = this.videoLinks[0].url;
+                        this.initializePlayer();
+                    }
+                } catch (e) {
+                    this.error = 'Failed to load video links.';
+                    console.error('Load video error:', e);
+                } finally {
+                    this.loadingVideo = false;
+                    this.render();
+                }
+            }
+
+            initializePlayer() {
+                setTimeout(() => {
+                    const video = document.getElementById('videoPlayer');
+                    if (!video || !this.playingVideo) return;
+
+                    if (this.hls) {
+                        this.hls.destroy();
+                    }
+
+                    if (Hls.isSupported()) {
+                        this.hls = new Hls({
+                            enableWorker: true,
+                            lowLatencyMode: true,
+                        });
+                        this.hls.loadSource(this.playingVideo);
+                        this.hls.attachMedia(video);
+                        this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                            video.play().catch(e => console.log('Autoplay prevented'));
+                        });
+                    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                        video.src = this.playingVideo;
+                        video.addEventListener('loadedmetadata', () => {
+                            video.play().catch(e => console.log('Autoplay prevented'));
+                        });
+                    }
+                }, 100);
+            }
+
+            selectEpisode(episode) {
+                this.currentEpisode = episode;
+                this.playingVideo = null;
+                this.videoLinks = [];
+                this.loadVideoLinks(episode.link);
+            }
+
+            changeQuality(url) {
+                this.playingVideo = url;
+                const video = document.getElementById('videoPlayer');
+                const currentTime = video ? video.currentTime : 0;
+                
+                this.render();
+                
+                setTimeout(() => {
+                    const newVideo = document.getElementById('videoPlayer');
+                    if (newVideo) {
+                        newVideo.currentTime = currentTime;
+                    }
+                }, 200);
+            }
+
+            render() {
+                const app = document.getElementById('app');
+                
+                if (this.loading && !this.seriesData) {
+                    app.innerHTML = `
+                        <div class="flex justify-center items-center h-screen">
+                            <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-500"></div>
+                        </div>
+                    `;
+                    return;
+                }
+
+                if (this.error && !this.seriesData) {
+                    app.innerHTML = `
+                        <div class="flex flex-col justify-center items-center h-screen p-4">
+                            <svg class="w-16 h-16 text-red-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                            <p class="text-red-400 text-xl mb-4">${this.error}</p>
+                            <button onclick="window.history.back()" class="px-6 py-3 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors">
+                                Go Back
+                            </button>
+                        </div>
+                    `;
+                    return;
+                }
+
+                app.innerHTML = `
+                    <div class="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black">
+                        <!-- Header -->
+                        <div class="bg-black/50 backdrop-blur-sm border-b border-gray-700 sticky top-0 z-50">
+                            <div class="max-w-7xl mx-auto px-4 py-4 flex items-center gap-4">
+                                <button onclick="window.history.back()" class="p-2 hover:bg-gray-700 rounded-full transition-colors">
+                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                                    </svg>
+                                </button>
+                                <div class="flex-1">
+                                    <h1 class="text-xl font-bold">${this.seriesData.title}</h1>
+                                    ${this.currentEpisode ? `
+                                        <p class="text-sm text-gray-400">${this.currentEpisode.title || 'Episode'}</p>
+                                    ` : ''}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="max-w-7xl mx-auto p-4 md:p-8">
+                            <div class="grid md:grid-cols-3 gap-6">
+                                <!-- Left: Video Player -->
+                                <div class="md:col-span-2 space-y-4">
+                                    <!-- Video Player -->
+                                    ${this.playingVideo ? `
+                                        <div class="bg-black rounded-lg overflow-hidden shadow-2xl">
+                                            <video
+                                                id="videoPlayer"
+                                                controls
+                                                class="w-full aspect-video"
+                                                crossorigin="anonymous"
+                                            >
+                                                ${this.videoLinks.filter(v => v.type === 'subtitle').map((sub, i) => `
+                                                    <track kind="subtitles" src="${sub.url}" srclang="${sub.language}" label="${sub.language}" ${i === 0 ? 'default' : ''}>
+                                                `).join('')}
+                                            </video>
+                                        </div>
+
+                                        <!-- Quality Selection -->
+                                        ${this.videoLinks.filter(v => v.type !== 'subtitle').length > 1 ? `
+                                            <div>
+                                                <h3 class="text-lg font-semibold mb-3 flex items-center gap-2">
+                                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z"/>
+                                                    </svg>
+                                                    Quality
+                                                </h3>
+                                                <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                                    ${this.videoLinks.filter(v => v.type !== 'subtitle').map((link, i) => `
+                                                        <button
+                                                            onclick="player.changeQuality('${link.url}')"
+                                                            class="p-3 rounded-lg font-medium transition-all ${this.playingVideo === link.url ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/50' : 'bg-gray-800 hover:bg-gray-700'}"
+                                                        >
+                                                            ${link.quality}
+                                                        </button>
+                                                    `).join('')}
+                                                </div>
+                                            </div>
+                                        ` : ''}
+                                    ` : `
+                                        <div class="bg-gray-800 rounded-lg p-12 text-center aspect-video flex items-center justify-center">
+                                            ${this.loadingVideo ? `
+                                                <div class="text-center">
+                                                    <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-500 mx-auto mb-4"></div>
+                                                    <p class="text-gray-400">Loading video...</p>
+                                                </div>
+                                            ` : `
+                                                <div>
+                                                    <svg class="mx-auto mb-4 text-gray-600 w-16 h-16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                                                    </svg>
+                                                    <p class="text-gray-400">Select an episode to play</p>
+                                                </div>
+                                            `}
+                                        </div>
+                                    `}
+
+                                    <!-- Series Info -->
+                                    <div class="bg-gray-800 rounded-lg p-6 space-y-4">
+                                        <div>
+                                            <h2 class="text-2xl font-bold mb-2">${this.seriesData.title}</h2>
+                                            <div class="flex flex-wrap gap-3 text-sm">
+                                                ${this.seriesData.year ? `<span class="bg-gray-700 px-3 py-1 rounded-full">📅 ${this.seriesData.year}</span>` : ''}
+                                                ${this.seriesData.match ? `<span class="bg-gray-700 px-3 py-1 rounded-full">⭐ ${this.seriesData.match}</span>` : ''}
+                                                ${this.seriesData.ua ? `<span class="bg-gray-700 px-3 py-1 rounded-full">🔞 ${this.seriesData.ua}</span>` : ''}
+                                            </div>
+                                        </div>
+
+                                        ${this.seriesData.genre ? `
+                                            <div>
+                                                <h3 class="text-sm font-semibold mb-2 text-gray-400 flex items-center gap-2">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
+                                                    </svg>
+                                                    Genres
+                                                </h3>
+                                                <div class="flex flex-wrap gap-2">
+                                                    ${this.seriesData.genre.split(',').map(g => `
+                                                        <span class="px-2 py-1 bg-gradient-to-r from-purple-600 to-pink-600 rounded text-xs">${g.trim()}</span>
+                                                    `).join('')}
+                                                </div>
+                                            </div>
+                                        ` : ''}
+
+                                        ${this.seriesData.desc ? `
+                                            <div>
+                                                <h3 class="text-sm font-semibold mb-2 text-gray-400 flex items-center gap-2">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7"/>
+                                                    </svg>
+                                                    Description
+                                                </h3>
+                                                <p class="text-sm text-gray-300 leading-relaxed">${this.seriesData.desc}</p>
+                                            </div>
+                                        ` : ''}
+
+                                        ${this.seriesData.cast ? `
+                                            <div>
+                                                <h3 class="text-sm font-semibold mb-2 text-gray-400 flex items-center gap-2">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
+                                                    </svg>
+                                                    Cast
+                                                </h3>
+                                                <p class="text-sm text-gray-300">${this.seriesData.cast}</p>
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                </div>
+
+                                <!-- Right: Episodes List -->
+                                <div class="md:col-span-1">
+                                    <div class="bg-gray-800 rounded-lg p-4 sticky top-24">
+                                        <h3 class="text-lg font-bold mb-4 flex items-center gap-2">
+                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+                                            </svg>
+                                            Episodes (${this.seriesData.episodes?.length || 0})
+                                        </h3>
+                                        <div class="space-y-2 max-h-[600px] overflow-y-auto custom-scrollbar">
+                                            ${this.seriesData.episodes && this.seriesData.episodes.length > 0 ? 
+                                                this.seriesData.episodes.map((ep, i) => {
+                                                    if (!ep) return '';
+                                                    const isActive = this.currentEpisode && this.currentEpisode.id === ep.id;
+                                                    return `
+                                                        <div 
+                                                            onclick='player.selectEpisode(${JSON.stringify(ep).replace(/'/g, "\\'")})'
+                                                            class="flex items-start gap-3 p-3 rounded-lg cursor-pointer transition-all ${isActive ? 'bg-purple-600 shadow-lg shadow-purple-500/50' : 'bg-gray-700 hover:bg-gray-600'}"
+                                                        >
+                                                            <div class="flex-shrink-0 w-16 h-16 bg-gray-600 rounded overflow-hidden">
+                                                                <img
+                                                                    src="${ep.image || this.seriesData.poster}"
+                                                                    alt="${ep.title || `Episode ${i + 1}`}"
+                                                                    class="w-full h-full object-cover"
+                                                                    onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22200%22%3E%3Crect fill=%22%23374151%22 width=%22200%22 height=%22200%22/%3E%3C/svg%3E'"
+                                                                />
+                                                            </div>
+                                                            <div class="flex-1 min-w-0">
+                                                                <p class="font-medium text-sm truncate">${ep.title || `Episode ${i + 1}`}</p>
+                                                                <p class="text-xs text-gray-${isActive ? '200' : '400'}">
+                                                                    ${ep.s || ''} ${ep.ep || ''} ${ep.time ? '• ' + ep.time : ''}
+                                                                </p>
+                                                            </div>
+                                                            ${isActive ? `
+                                                                <svg class="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                                                                    <polygon points="5 3 19 12 5 21 5 3"/>
+                                                                </svg>
+                                                            ` : ''}
+                                                        </div>
+                                                    `;
+                                                }).join('') 
+                                            : '<p class="text-gray-400 text-center py-8">No episodes available</p>'}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                // Initialize player after render
+                if (this.playingVideo) {
+                    this.initializePlayer();
+                }
+            }
+        }
+
+        // Initialize player
+        const player = new SeriesPlayer();
+    </script>
+</body>
+</html>

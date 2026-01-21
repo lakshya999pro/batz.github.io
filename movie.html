@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Movie</title>
+
+<style>
+body {
+  margin: 0;
+  background: #000;
+  color: #fff;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont;
+}
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #000;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid #222;
+}
+
+.back {
+  font-size: 22px;
+  cursor: pointer;
+}
+
+.title {
+  font-size: 17px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.poster-wrap {
+  padding: 20px;
+  display: flex;
+  justify-content: center;
+}
+
+.poster {
+  width: 220px;
+  height: 330px;
+  object-fit: cover;
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.8);
+}
+
+.play-btn {
+  margin: 0 16px;
+  background: #fff;
+  color: #000;
+  border: none;
+  padding: 14px;
+  width: calc(100% - 32px);
+  font-size: 16px;
+  font-weight: 600;
+  border-radius: 6px;
+}
+
+.meta {
+  padding: 10px 16px 0;
+  font-size: 13px;
+  color: #aaa;
+}
+
+.desc {
+  padding: 16px;
+  font-size: 14px;
+  color: #ccc;
+  line-height: 1.5;
+}
+
+.loading {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #fff;
+  font-size: 16px;
+  background: rgba(0,0,0,0.9);
+  padding: 20px 40px;
+  border-radius: 8px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="header">
+  <div class="back" onclick="history.back()">←</div>
+  <div class="title" id="movieTitle">Loading...</div>
+</div>
+
+<div class="poster-wrap">
+  <img id="poster" class="poster">
+</div>
+
+<button class="play-btn" onclick="playMovie()">▶ Play Movie</button>
+
+<div class="meta" id="meta"></div>
+<div class="desc" id="description"></div>
+
+<div class="loading" id="videoLoading" style="display:none;">Loading video...</div>
+
+<script>
+// SERVER.JS for details (metadata)
+const SERVER_URL = "http://localhost:3000/api";
+
+// EXTRACTOR.JS for video links (working video extraction)
+const EXTRACTOR_URL = "http://localhost:3001/api";  // Update this to your deployed extractor URL
+
+const params = new URLSearchParams(location.search);
+const movieUrl = params.get("url");
+
+let movieData = null;
+
+async function init() {
+  try {
+    // Load movie details from server.js
+    const res = await fetch(
+      `${SERVER_URL}/details?url=${encodeURIComponent(movieUrl)}`
+    );
+    movieData = await res.json();
+
+    document.getElementById("movieTitle").innerText = movieData.title;
+    document.getElementById("description").innerText = movieData.desc || "";
+    document.getElementById("poster").src = movieData.poster || "";
+
+    document.getElementById("meta").innerText =
+      `${movieData.year || ""} • ${movieData.runtime || ""} • ${movieData.genre || ""}`;
+
+  } catch (e) {
+    console.error("Failed to load movie:", e);
+    alert("Failed to load movie");
+  }
+}
+
+async function playMovie() {
+  try {
+    // Show loading indicator
+    document.getElementById("videoLoading").style.display = "block";
+    
+    // Get video link from extractor.js (the working one!)
+    const v = await fetch(
+      `${EXTRACTOR_URL}/extract?url=${encodeURIComponent(movieUrl)}`
+    );
+    const videoRes = await v.json();
+
+    // Hide loading
+    document.getElementById("videoLoading").style.display = "none";
+
+    // Extractor returns direct url field
+    const videoUrl = videoRes.url;
+    
+    if (!videoUrl) {
+      alert("Video not available");
+      return;
+    }
+
+    const payload = {
+      title: movieData.title,
+      url: videoUrl,
+      type: "movie",
+      headers: videoRes.headers  // Include headers from extractor response
+    };
+
+    console.log("Sending to Android:", payload);
+
+    if (window.AndroidApp && window.AndroidApp.playVideo) {
+      window.AndroidApp.playVideo(JSON.stringify(payload));
+    } else {
+      alert("RUN IN KINEFLIX APP");
+    }
+  } catch (err) {
+    document.getElementById("videoLoading").style.display = "none";
+    console.error("Video load error:", err);
+    alert("Video load failed: " + err.message);
+  }
+}
+
+init();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kineflex - Watch Anime & Movies</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+        
+        * { font-family: 'Inter', sans-serif; }
+        
+        body { background: #0a0a0a; }
+        
+        .card-hover {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .card-hover:hover {
+            transform: scale(1.05);
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar { height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+        
+        .shimmer {
+            background: linear-gradient(90deg, #1a1a1a 25%, #2a2a2a 50%, #1a1a1a 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+        
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        .section-title {
+            font-size: 1.75rem;
+            font-weight: 600;
+            margin-bottom: 1.25rem;
+        }
+
+        .nav-arrow {
+            position: absolute;
+            right: 1rem;
+            top: 0.5rem;
+            width: 2rem;
+            height: 2rem;
+            background: rgba(255,255,255,0.1);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .nav-arrow:hover {
+            background: rgba(255,255,255,0.2);
+        }
+
+        .poster-card {
+            border-radius: 12px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .poster-card img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+    </style>
+</head>
+<body class="text-white">
+    
+    <!-- Header -->
+    <header class="sticky top-0 z-50 bg-black/80 backdrop-blur-lg border-b border-gray-900">
+        <div class="max-w-7xl mx-auto px-6 py-4">
+            <div class="flex items-center justify-between gap-6">
+                <!-- Logo -->
+                <div class="flex items-center gap-3">
+                    <div class="w-12 h-12 bg-yellow-500 rounded-full flex items-center justify-center font-bold text-xl text-black">
+                        KF
+                    </div>
+                    <h1 class="text-3xl font-bold">Kineflex</h1>
+                </div>
+                
+                <!-- Search Bar -->
+                <div class="flex-1 max-w-lg relative">
+                    <div class="relative">
+                        <svg class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                        </svg>
+                        <input 
+                            type="text" 
+                            id="searchInput"
+                            placeholder="Search"
+                            class="w-full px-4 py-3 pl-12 bg-gray-800/50 border-0 rounded-lg focus:outline-none focus:bg-gray-800 transition-colors text-white placeholder-gray-500"
+                        />
+                    </div>
+                    <div id="searchResults" class="absolute mt-2 w-full bg-gray-900 rounded-lg shadow-2xl border border-gray-800 overflow-hidden hidden max-h-96 overflow-y-auto custom-scrollbar"></div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-6 py-8">
+        <div id="home-content">
+            <!-- Loading State -->
+            <div class="space-y-12">
+                <div>
+                    <div class="shimmer h-7 w-48 rounded mb-6"></div>
+                    <div class="flex gap-4 overflow-hidden">
+                        <div class="shimmer h-96 w-64 rounded-xl flex-shrink-0"></div>
+                        <div class="shimmer h-96 w-64 rounded-xl flex-shrink-0"></div>
+                        <div class="shimmer h-96 w-64 rounded-xl flex-shrink-0"></div>
+                        <div class="shimmer h-96 w-64 rounded-xl flex-shrink-0"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Player Modal -->
+    <div id="playerModal" class="fixed inset-0 bg-black z-50 hidden flex items-center justify-center p-4">
+        <div class="max-w-6xl w-full">
+            <div class="flex justify-between items-center mb-4">
+                <h3 id="playerTitle" class="text-2xl font-semibold"></h3>
+                <button onclick="closePlayer()" class="p-2 hover:bg-gray-800 rounded-full transition-colors">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="bg-black rounded-lg overflow-hidden">
+                <video id="videoPlayer" controls class="w-full aspect-video"></video>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API = "http://localhost:3000/api";
+        let searchTimeout;
+
+        // Load the Home Page
+        async function loadHome() {
+            try {
+                const res = await fetch(`${API}/home`);
+                const data = await res.json();
+                
+                const container = document.getElementById('home-content');
+                container.innerHTML = data.map(section => `
+                    <div class="mb-12 relative">
+                        <div class="flex items-center justify-between mb-6">
+                            <h2 class="section-title">${section.sectionName}</h2>
+                            <div class="nav-arrow">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                                </svg>
+                            </div>
+                        </div>
+                        <div class="flex gap-4 overflow-x-auto pb-4 custom-scrollbar -mx-2 px-2">
+                            ${section.items.map(item => `
+                                <div class="card-hover flex-shrink-0 w-64 cursor-pointer" onclick="openContent('${item.link}', '${item.type}', '${item.id}', '${item.title.replace(/'/g, "\\'")}')">
+                                    <div class="poster-card h-96 mb-3">
+                                        <img 
+                                            src="${item.poster}" 
+                                            alt="${item.title}"
+                                            onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22256%22 height=%22384%22%3E%3Crect fill=%22%231a1a1a%22 width=%22256%22 height=%22384%22/%3E%3C/svg%3E'"
+                                        />
+                                    </div>
+                                    <h3 class="font-medium text-base line-clamp-1" title="${item.title}">${item.title}</h3>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                document.getElementById('home-content').innerHTML = `
+                    <div class="text-center py-20">
+                        <p class="text-red-400 text-xl mb-4">Failed to load content</p>
+                        <button onclick="loadHome()" class="px-6 py-3 bg-yellow-500 text-black font-semibold rounded-lg hover:bg-yellow-600 transition-colors">
+                            Try Again
+                        </button>
+                    </div>
+                `;
+            }
+        }
+
+        // Search Functionality
+        const searchInput = document.getElementById('searchInput');
+        const searchResults = document.getElementById('searchResults');
+
+        searchInput.addEventListener('input', (e) => {
+            clearTimeout(searchTimeout);
+            const query = e.target.value.trim();
+            
+            if (query.length < 2) {
+                searchResults.classList.add('hidden');
+                return;
+            }
+
+            searchTimeout = setTimeout(async () => {
+                try {
+                    const res = await fetch(`${API}/search?q=${encodeURIComponent(query)}`);
+                    const data = await res.json();
+                    
+                    if (data.length === 0) {
+                        searchResults.innerHTML = '<p class="p-4 text-gray-500 text-center">No results found</p>';
+                    } else {
+                        searchResults.innerHTML = data.map(item => `
+                            <div 
+                                class="flex items-center gap-4 p-3 hover:bg-gray-800 cursor-pointer transition-colors"
+                                onclick="openContent('${item.link}', '${item.type}', '${item.id}', '${item.title.replace(/'/g, "\\'")}'); searchResults.classList.add('hidden'); searchInput.value='';"
+                            >
+                                <img 
+                                    src="${item.poster}" 
+                                    alt="${item.title}"
+                                    class="w-12 h-18 object-cover rounded"
+                                    onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%22150%22%3E%3Crect fill=%22%231a1a1a%22 width=%22100%22 height=%22150%22/%3E%3C/svg%3E'"
+                                />
+                                <div class="flex-1">
+                                    <h4 class="font-medium text-sm">${item.title}</h4>
+                                    <p class="text-xs text-gray-500 capitalize mt-1">${item.type}</p>
+                                </div>
+                            </div>
+                        `).join('');
+                    }
+                    
+                    searchResults.classList.remove('hidden');
+                } catch (e) {
+                    console.error('Search error:', e);
+                }
+            }, 300);
+        });
+
+        // Close search results when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
+                searchResults.classList.add('hidden');
+            }
+        });
+
+        // Open content (movie or series)
+        function openContent(link, type, id, title) {
+            if (type === 'series') {
+                window.location.href = `test.html?url=${encodeURIComponent(link)}&id=${id}&title=${encodeURIComponent(title)}`;
+            } else {
+                window.location.href = `movie.html?url=${encodeURIComponent(link)}&id=${id}&title=${encodeURIComponent(title)}`;
+            }
+        }
+
+        // Video Player Functions
+        async function playVideo(link, title) {
+            const modal = document.getElementById('playerModal');
+            const titleEl = document.getElementById('playerTitle');
+            const video = document.getElementById('videoPlayer');
+            
+            titleEl.textContent = title;
+            modal.classList.remove('hidden');
+
+            try {
+                const res = await fetch(`${API}/extract?url=${encodeURIComponent(link)}`);
+                const data = await res.json();
+                
+                if (Hls.isSupported()) {
+                    const hls = new Hls();
+                    hls.loadSource(data.url);
+                    hls.attachMedia(video);
+                    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                        video.play();
+                    });
+                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                    video.src = data.url;
+                    video.addEventListener('loadedmetadata', () => {
+                        video.play();
+                    });
+                }
+            } catch (e) {
+                alert("Playback error: " + e.message);
+                closePlayer();
+            }
+        }
+
+        function closePlayer() {
+            const modal = document.getElementById('playerModal');
+            const video = document.getElementById('videoPlayer');
+            
+            video.pause();
+            video.src = '';
+            modal.classList.add('hidden');
+        }
+
+        // Close player with Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closePlayer();
+        });
+
+        // Initialize
+        loadHome();
+    </script>
+</body>
+</html>

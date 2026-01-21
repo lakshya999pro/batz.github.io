@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Series</title>
+
+<style>
+body {
+  margin: 0;
+  background: #000;
+  color: #fff;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont;
+}
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #000;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid #222;
+}
+
+.back {
+  font-size: 22px;
+  cursor: pointer;
+}
+
+.title {
+  font-size: 17px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.poster {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+}
+
+.play-btn {
+  margin: 14px;
+  background: #fff;
+  color: #000;
+  border: none;
+  padding: 14px;
+  width: calc(100% - 28px);
+  font-size: 16px;
+  font-weight: 600;
+  border-radius: 6px;
+}
+
+.desc {
+  padding: 0 14px;
+  font-size: 14px;
+  color: #ccc;
+}
+
+.episodes {
+  padding: 14px;
+}
+
+.episode {
+  display: flex;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid #222;
+  cursor: pointer;
+}
+
+.episode img {
+  width: 110px;
+  height: 62px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.ep-title {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.loading {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #fff;
+  font-size: 16px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="header">
+  <div class="back" onclick="history.back()">←</div>
+  <div class="title" id="seriesTitle">Loading...</div>
+</div>
+
+<img id="poster" class="poster">
+
+<button class="play-btn" onclick="playFirstEpisode()">▶ Play</button>
+
+<p class="desc" id="description"></p>
+
+<div class="episodes" id="episodes"></div>
+
+<div class="loading" id="videoLoading" style="display:none;">Loading video...</div>
+
+<script>
+// SERVER.JS for details (metadata)
+const SERVER_URL = "http://localhost:3000/api";
+
+// EXTRACTOR.JS for video links (working video extraction)
+const EXTRACTOR_URL = "http://localhost:3001/api";  // Update this to your extractor URL
+
+const params = new URLSearchParams(location.search);
+const seriesUrl = params.get("url");
+
+let seriesData = null;
+
+async function init() {
+  try {
+    // Get series details from server.js
+    const res = await fetch(`${SERVER_URL}/details?url=${encodeURIComponent(seriesUrl)}`);
+    seriesData = await res.json();
+
+    document.getElementById("seriesTitle").innerText = seriesData.title;
+    document.getElementById("description").innerText = seriesData.desc || "";
+    document.getElementById("poster").src = seriesData.poster || "";
+
+    renderEpisodes();
+  } catch (e) {
+    console.error("Failed to load series:", e);
+    alert("Failed to load series");
+  }
+}
+
+function renderEpisodes() {
+  const box = document.getElementById("episodes");
+  box.innerHTML = "";
+
+  seriesData.episodes.forEach((ep, i) => {
+    const div = document.createElement("div");
+    div.className = "episode";
+    div.onclick = () => playEpisode(ep);
+
+    div.innerHTML = `
+      <img src="${ep.image || seriesData.poster}">
+      <div>
+        <div class="ep-title">${ep.title || `Episode ${i + 1}`}</div>
+      </div>
+    `;
+
+    box.appendChild(div);
+  });
+}
+
+async function playEpisode(ep) {
+  try {
+    // Show loading indicator
+    document.getElementById("videoLoading").style.display = "block";
+    
+    // Get video link from extractor.js (the working one!)
+    const res = await fetch(
+      `${EXTRACTOR_URL}/extract?url=${encodeURIComponent(ep.link)}`
+    );
+    const data = await res.json();
+
+    // Hide loading
+    document.getElementById("videoLoading").style.display = "none";
+
+    // Extractor returns direct url field
+    const videoUrl = data.url;
+    if (!videoUrl) throw new Error("No video URL");
+
+    const videoData = {
+      title: seriesData.title,
+      episode: ep.title,
+      url: videoUrl,
+      type: "series",
+      headers: data.headers  // Include headers from extractor response
+    };
+
+    console.log("Sending to Android:", videoData);
+
+    if (window.AndroidApp && window.AndroidApp.playVideo) {
+      AndroidApp.playVideo(JSON.stringify(videoData));
+    } else {
+      // For testing in browser
+      console.log("Video URL:", videoUrl);
+      alert("Video ready! URL: " + videoUrl.substring(0, 50) + "...");
+    }
+  } catch (err) {
+    document.getElementById("videoLoading").style.display = "none";
+    console.error("Video load error:", err);
+    alert("Video load failed: " + err.message);
+  }
+}
+
+function playFirstEpisode() {
+  if (seriesData?.episodes?.length) {
+    playEpisode(seriesData.episodes[0]);
+  }
+}
+
+init();
+</script>
+
+</body>
+</html>
