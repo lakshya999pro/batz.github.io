@@ -7,7 +7,7 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// CORS configuration for Render deployment
+// CORS configuration - works everywhere
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'OPTIONS'],
@@ -15,6 +15,8 @@ app.use(cors({
 }));
 
 app.use(express.json());
+
+// Serve static files from public folder
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Cookie storage
@@ -33,13 +35,12 @@ const headers = {
 
 // Bypass function to get cookie
 async function bypass() {
-  // Return cached cookie if valid (less than 15 hours old)
   if (cookieCache.value && (Date.now() - cookieCache.timestamp) < 54000000) {
-    console.log('Using cached cookie');
+    console.log('✓ Using cached cookie');
     return cookieCache.value;
   }
 
-  console.log('Fetching new cookie...');
+  console.log('⚡ Fetching new cookie...');
   try {
     let verifyResponse;
     let attempts = 0;
@@ -54,18 +55,17 @@ async function bypass() {
         });
         
         attempts++;
-        console.log(`Bypass attempt ${attempts}, response:`, verifyResponse.data);
+        console.log(`  Attempt ${attempts}...`);
         
         if (attempts >= maxAttempts) {
-          console.log('Max attempts reached');
+          console.log('  Max attempts reached');
           break;
         }
         
-        // Small delay between attempts
         await new Promise(resolve => setTimeout(resolve, 1000));
         
       } catch (err) {
-        console.error('Bypass request error:', err.message);
+        console.error('  Request error:', err.message);
         attempts++;
         if (attempts >= maxAttempts) break;
         await new Promise(resolve => setTimeout(resolve, 2000));
@@ -81,15 +81,15 @@ async function bypass() {
           value: tHashT,
           timestamp: Date.now()
         };
-        console.log('New cookie obtained successfully');
+        console.log('✓ Cookie obtained successfully');
         return tHashT;
       }
     }
     
-    console.error('Failed to obtain cookie');
+    console.error('✗ Failed to obtain cookie');
     return '';
   } catch (error) {
-    console.error('Bypass error:', error.message);
+    console.error('✗ Bypass error:', error.message);
     return '';
   }
 }
@@ -100,22 +100,23 @@ async function getCookies() {
   return `t_hash_t=${cookie}; ott=nf; hd=on`;
 }
 
-// Root endpoint
+// Root endpoint - serves index.html
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Health check endpoint
+// Health check endpoints
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     timestamp: new Date().toISOString(),
     cookie: cookieCache.value ? 'cached' : 'none',
-    cookieAge: cookieCache.timestamp ? Math.floor((Date.now() - cookieCache.timestamp) / 1000 / 60) : 0
+    cookieAge: cookieCache.timestamp ? Math.floor((Date.now() - cookieCache.timestamp) / 1000 / 60) + ' minutes' : '0 minutes',
+    port: PORT,
+    environment: process.env.NODE_ENV || 'development'
   });
 });
 
-// API Health check
 app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'ok', 
@@ -127,7 +128,7 @@ app.get('/api/health', (req, res) => {
 // Home page endpoint
 app.get('/api/home', async (req, res) => {
   try {
-    console.log('Home endpoint called');
+    console.log('📺 Home endpoint called');
     const cookieStr = await getCookies();
     
     if (!cookieStr.includes('t_hash_t=')) {
@@ -178,10 +179,10 @@ app.get('/api/home', async (req, res) => {
       }
     });
 
-    console.log(`Home: Found ${sections.length} sections`);
+    console.log(`✓ Home: Found ${sections.length} sections`);
     res.json({ sections });
   } catch (error) {
-    console.error('Home error:', error.message);
+    console.error('✗ Home error:', error.message);
     res.status(500).json({ error: error.message, sections: [] });
   }
 });
@@ -194,7 +195,7 @@ app.get('/api/search', async (req, res) => {
       return res.status(400).json({ error: 'Query parameter required' });
     }
 
-    console.log('Search:', query);
+    console.log('🔍 Search:', query);
     const cookieStr = await getCookies();
     const timestamp = Date.now();
     
@@ -219,10 +220,10 @@ app.get('/api/search', async (req, res) => {
       poster: `https://img.nfmirrorcdn.top/poster/v/${item.id}.jpg`
     }));
 
-    console.log(`Search: Found ${results.length} results`);
+    console.log(`✓ Search: Found ${results.length} results`);
     res.json({ results });
   } catch (error) {
-    console.error('Search error:', error.message);
+    console.error('✗ Search error:', error.message);
     res.status(500).json({ error: error.message, results: [] });
   }
 });
@@ -231,7 +232,7 @@ app.get('/api/search', async (req, res) => {
 app.get('/api/load/:id', async (req, res) => {
   try {
     const id = req.params.id;
-    console.log('Load details for:', id);
+    console.log('📖 Load details for:', id);
     
     const cookieStr = await getCookies();
     const timestamp = Date.now();
@@ -253,7 +254,6 @@ app.get('/api/load/:id', async (req, res) => {
     const data = response.data;
     let episodes = [];
 
-    // Handle missing or undefined episodes array
     if (!data.episodes || data.episodes.length === 0 || data.episodes[0] === null) {
       episodes.push({
         id,
@@ -272,7 +272,7 @@ app.get('/api/load/:id', async (req, res) => {
       }));
     }
 
-    console.log(`Load: ${data.title}, ${episodes.length} episodes`);
+    console.log(`✓ Load: ${data.title}, ${episodes.length} episodes`);
     res.json({
       title: data.title || 'Unknown Title',
       description: data.desc || '',
@@ -286,7 +286,7 @@ app.get('/api/load/:id', async (req, res) => {
       type: (!data.episodes || data.episodes.length === 0 || data.episodes[0] === null) ? 'movie' : 'series'
     });
   } catch (error) {
-    console.error('Load error:', error.message);
+    console.error('✗ Load error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -296,7 +296,7 @@ app.get('/api/links/:id', async (req, res) => {
   try {
     const id = req.params.id;
     const title = req.query.title || '';
-    console.log('Get links for:', id, title);
+    console.log('🎬 Get links for:', id, title);
     
     const cookieStr = await getCookies();
     const timestamp = Date.now();
@@ -343,10 +343,10 @@ app.get('/api/links/:id', async (req, res) => {
       });
     }
 
-    console.log(`Links: Found ${links.length} links, ${subtitles.length} subtitles`);
+    console.log(`✓ Links: Found ${links.length} links, ${subtitles.length} subtitles`);
     res.json({ links, subtitles });
   } catch (error) {
-    console.error('Links error:', error.message);
+    console.error('✗ Links error:', error.message);
     res.status(500).json({ error: error.message, links: [], subtitles: [] });
   }
 });
@@ -362,8 +362,19 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Netflix Mirror Server running on port ${PORT}`);
-  console.log(`📺 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🌐 Server started at ${new Date().toISOString()}`);
+// Start server - works on localhost AND Render
+const HOST = process.env.NODE_ENV === 'production' ? '0.0.0.0' : 'localhost';
+
+app.listen(PORT, HOST, () => {
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('🚀 Netflix Mirror Server Started!');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log(`📍 Local:    http://localhost:${PORT}`);
+  console.log(`🌐 Network:  http://${HOST}:${PORT}`);
+  console.log(`⚙️  Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`⏰ Started: ${new Date().toLocaleString()}`);
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('📺 Open your browser and visit the local URL');
+  console.log('✓ Press Ctrl+C to stop the server');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 });
