@@ -1,307 +1,369 @@
 const express = require('express');
 const axios = require('axios');
-const cheerio = require('cheerio');
 const cors = require('cors');
+const cheerio = require('cheerio');
 const path = require('path');
 
 const app = express();
-app.use(cors());
+const PORT = process.env.PORT || 3000;
+
+// CORS configuration for Render deployment
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, 'public')));
 
-// Serve static HTML files
-app.use(express.static(__dirname));
-
-const BASE_URL = 'https://animesalt.top';
-
-const BASE_HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+// Cookie storage
+let cookieCache = {
+  value: '',
+  timestamp: 0
 };
 
-const mainPageCategories = [
-    { path: "category/status/ongoing", name: "On-Air Shows" },
-    { path: "category/type/anime/?type=series", name: "New Anime Arrivals" },
-    { path: "category/type/cartoon/?type=series", name: "Just In: Cartoon Series" },
-    { path: "category/type/anime/?type=movies", name: "Latest Anime Movies" },
-    { path: "category/type/cartoon/?type=movies", name: "Fresh Cartoon Films" },
-    { path: "category/network/crunchyroll", name: "Crunchyroll" },
-    { path: "category/network/netflix", name: "Netflix" },
-    { path: "category/network/prime-video", name: "Prime Video" }
-];
+const BASE_URL = 'https://net51.cc';
+const headers = {
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+  'Accept-Language': 'en-IN,en-US;q=0.9,en;q=0.8',
+  'Connection': 'keep-alive',
+  'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36'
+};
 
-function parseArticles($) {
-    return $('article').map((i, el) => {
-        const titleElement = $(el).find('header h2');
-        const linkElement = $(el).find('a');
-        const imgElement = $(el).find('img');
+// Bypass function to get cookie
+async function bypass() {
+  // Return cached cookie if valid (less than 15 hours old)
+  if (cookieCache.value && (Date.now() - cookieCache.timestamp) < 54000000) {
+    console.log('Using cached cookie');
+    return cookieCache.value;
+  }
 
-        const title = titleElement.length ? titleElement.text().trim() : "Unknown Title";
-        const link = linkElement.length ? linkElement.attr('href') : null;
-        const poster = imgElement.attr('data-src') || imgElement.attr('src') || "";
-
-        if (!link) return null;
+  console.log('Fetching new cookie...');
+  try {
+    let verifyResponse;
+    let attempts = 0;
+    const maxAttempts = 10;
+    
+    do {
+      try {
+        verifyResponse = await axios.post(`${BASE_URL}/tv/p.php`, {}, { 
+          headers,
+          timeout: 15000,
+          validateStatus: () => true
+        });
         
-        // Extract ID from link for routing
-        const urlParts = link.split('/').filter(Boolean);
-        const id = urlParts[urlParts.length - 1];
+        attempts++;
+        console.log(`Bypass attempt ${attempts}, response:`, verifyResponse.data);
         
-        return { 
-            title, 
-            link, 
-            poster,
-            id,
-            type: link.includes('/series/') ? 'series' : 'movie'
+        if (attempts >= maxAttempts) {
+          console.log('Max attempts reached');
+          break;
+        }
+        
+        // Small delay between attempts
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+      } catch (err) {
+        console.error('Bypass request error:', err.message);
+        attempts++;
+        if (attempts >= maxAttempts) break;
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    } while (!verifyResponse?.data?.includes('"r":"n"'));
+    
+    if (verifyResponse && verifyResponse.headers['set-cookie']) {
+      const cookies = verifyResponse.headers['set-cookie'];
+      const tHashT = cookies?.find(c => c.startsWith('t_hash_t='))?.split(';')[0].split('=')[1] || '';
+      
+      if (tHashT) {
+        cookieCache = {
+          value: tHashT,
+          timestamp: Date.now()
         };
-    }).get().filter(x => x !== null);
+        console.log('New cookie obtained successfully');
+        return tHashT;
+      }
+    }
+    
+    console.error('Failed to obtain cookie');
+    return '';
+  } catch (error) {
+    console.error('Bypass error:', error.message);
+    return '';
+  }
 }
 
-// --- Home Page Endpoint ---
+// Get cookies string
+async function getCookies() {
+  const cookie = await bypass();
+  return `t_hash_t=${cookie}; ott=nf; hd=on`;
+}
+
+// Root endpoint
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    cookie: cookieCache.value ? 'cached' : 'none',
+    cookieAge: cookieCache.timestamp ? Math.floor((Date.now() - cookieCache.timestamp) / 1000 / 60) : 0
+  });
+});
+
+// API Health check
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    cookie: cookieCache.value ? 'cached' : 'none',
+    cookieAge: cookieCache.timestamp ? Math.floor((Date.now() - cookieCache.timestamp) / 1000 / 60) : 0
+  });
+});
+
+// Home page endpoint
 app.get('/api/home', async (req, res) => {
-    try {
-        const homeData = await Promise.all(mainPageCategories.map(async (cat) => {
-            try {
-                let url = `${BASE_URL}/${cat.path}`;
-                if (cat.path.includes('type=')) {
-                    const parts = cat.path.split('/?type=');
-                    url = `${BASE_URL}/${parts[0]}/page/1/?type=${parts[1]}`;
-                }
-
-                const response = await axios.get(url, { headers: BASE_HEADERS, timeout: 5000 });
-                const $ = cheerio.load(response.data);
-                return {
-                    sectionName: cat.name,
-                    items: parseArticles($)
-                };
-            } catch (innerErr) {
-                return { sectionName: cat.name, items: [], error: "Section load failed" };
-            }
-        }));
-        res.json(homeData);
-    } catch (err) {
-        res.status(500).json({ error: "Major failure: " + err.message });
+  try {
+    console.log('Home endpoint called');
+    const cookieStr = await getCookies();
+    
+    if (!cookieStr.includes('t_hash_t=')) {
+      throw new Error('Failed to obtain authentication cookie');
     }
-});
+    
+    const response = await axios.get(`${BASE_URL}/mobile/home?app=1`, {
+      headers: {
+        ...headers,
+        'Cookie': cookieStr,
+        'Referer': `${BASE_URL}/`
+      },
+      timeout: 20000,
+      validateStatus: () => true
+    });
 
-// --- Search Endpoint ---
-app.get('/api/search', async (req, res) => {
-    try {
-        const query = req.query.q;
-        const page = req.query.page || 1;
-        const formData = new URLSearchParams({
-            "action": "torofilm_infinite_scroll",
-            "page": page.toString(),
-            "per_page": "12",
-            "query_type": "search",
-            "query_args[s]": query
-        });
-
-        const { data: response } = await axios.post(`${BASE_URL}/wp-admin/admin-ajax.php`, formData.toString(), {
-            headers: { 
-                ...BASE_HEADERS, 
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'X-Requested-With': 'XMLHttpRequest'
-            }
-        });
-
-        if (!response.success || !response.data || !response.data.content) {
-            return res.json([]);
-        }
-
-        const $ = cheerio.load(response.data.content);
-        res.json(parseArticles($));
-    } catch (err) {
-        res.status(500).json({ error: err.message });
+    if (response.status !== 200) {
+      throw new Error(`API returned status ${response.status}`);
     }
-});
 
-// --- Details Endpoint (for movie/series info) ---
-app.get('/api/details', async (req, res) => {
-    try {
-        const url = req.query.url;
-        if (!url) return res.status(400).json({ error: "Missing URL" });
-
-        const { data: pageHtml } = await axios.get(url, { headers: BASE_HEADERS });
-        const $ = cheerio.load(pageHtml);
-
-        const title = $('h1').text().trim();
-        const poster = $('.bgft img').attr('data-src') || $('.bgft img').attr('src') || '';
-        const desc = $('#overview-text p').text().trim();
-        
-        // Correctly find Genres and Year as per Kotlin logic
-        const genre = $("h4:contains('Genres')").next().find('a').map((i, el) => $(el).text()).get().join(', ');
-        const year = $("div").filter((i, el) => $(el).text().trim().match(/^\d{4}$/)).first().text().trim();
-        
-        const episodes = [];
-        const seasonButtons = $('div.season-buttons a'); // Matching Animesalt.kt
-
-        if (seasonButtons.length > 0) {
-            // It's a series
-            for (let i = 0; i < seasonButtons.length; i++) {
-                const btn = $(seasonButtons[i]);
-                const dataSeason = btn.attr('data-season');
-                const postId = btn.attr('data-post');
-
-                // Perform the AJAX call for episodes
-                const formData = new URLSearchParams({
-                    "action": "action_select_season",
-                    "season": dataSeason,
-                    "post": postId
-                });
-
-                const { data: seasonRes } = await axios.post(`${BASE_URL}/wp-admin/admin-ajax.php`, formData.toString(), {
-                    headers: { ...BASE_HEADERS, 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' }
-                });
-
-                // Parse the AJAX response
-                const s$ = cheerio.load(seasonRes.data || seasonRes);
-                s$('li article').each((index, ep) => {
-                    const epLink = s$(ep).find('a').attr('href');
-                    episodes.push({
-                        id: epLink.split('/').filter(Boolean).pop(),
-                        link: epLink,
-                        title: s$(ep).find('h2.entry-title').text().trim() || `Episode ${index + 1}`,
-                        image: s$(ep).find('div.post-thumbnail img').attr('src') || poster,
-                        s: `Season ${dataSeason}`,
-                        ep: `Episode ${index + 1}`
-                    });
-                });
-            }
+    const $ = cheerio.load(response.data);
+    
+    const sections = [];
+    $('.tray-container, #top10').each((i, elem) => {
+      const title = $(elem).find('h2, span').first().text().trim();
+      const items = [];
+      
+      $(elem).find('article, .top10-post').each((j, item) => {
+        let id = $(item).attr('data-post');
+        if (!id) {
+          const imgSrc = $(item).find('img').attr('data-src') || $(item).find('img').attr('src') || '';
+          id = imgSrc.split('/').pop().split('.')[0];
         }
-
-        const id = url.split('/').filter(Boolean).pop();
-
-        res.json({
+        
+        const itemTitle = $(item).find('img').attr('alt') || '';
+        
+        if (id && itemTitle) {
+          items.push({
             id,
-            title,
-            poster,
-            desc,
-            genre,
-            year,
-            episodes: episodes.length > 0 ? episodes : null,
-            type: episodes.length > 0 ? 'series' : 'movie'
-        });
-    } catch (err) {
-        console.error("Details Error:", err.message);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// --- Image Proxy Endpoint ---
-app.get('/api/image', async (req, res) => {
-    try {
-        const url = req.query.url;
-        if (!url) return res.status(400).json({ error: "Missing URL" });
-
-        const response = await axios.get(url, {
-            responseType: 'arraybuffer',
-            headers: BASE_HEADERS
-        });
-
-        res.set('Content-Type', response.headers['content-type']);
-        res.send(response.data);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// --- Video Extraction Endpoint ---
-app.get('/api/video', async (req, res) => {
-    try {
-        const url = req.query.url;
-        if (!url) return res.status(400).json({ error: "Missing URL" });
-
-        const { data: pageHtml } = await axios.get(url, { headers: BASE_HEADERS });
-        const $ = cheerio.load(pageHtml);
-        
-        const iframeSrc = $('#options-0 iframe').attr('data-src') || $('iframe[src*="as-cdn"]').attr('src');
-        if (!iframeSrc) throw new Error("Video player iframe not found");
-
-        const urlObj = new URL(iframeSrc);
-        const videoId = urlObj.pathname.split('/').pop();
-        const baseUrl = `${urlObj.protocol}//${urlObj.host}`;
-
-        const apiUrl = `${baseUrl}/player/index.php?data=${videoId}&do=getVideo`;
-        
-        const response = await axios.post(apiUrl, 
-            new URLSearchParams({ 'hash': videoId, 'r': 'https://animesalt.top' }).toString(), 
-            {
-                headers: {
-                    ...BASE_HEADERS,
-                    'Referer': iframeSrc,
-                    'x-requested-with': 'XMLHttpRequest',
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                }
-            }
-        );
-
-        if (response.data && response.data.videoSource) {
-            return res.json({
-                url: response.data.videoSource,
-                type: "hls",
-                headers: {
-                    "Referer": baseUrl,
-                    "User-Agent": BASE_HEADERS['User-Agent']
-                }
-            });
-        } else {
-            throw new Error("No video source returned from API");
+            title: itemTitle,
+            poster: `https://imgcdn.kim/poster/v/${id}.jpg`
+          });
         }
-    } catch (err) {
-        console.error("Video Extraction Error:", err.message);
-        res.status(500).json({ error: err.message });
-    }
+      });
+      
+      if (items.length > 0) {
+        sections.push({ title, items });
+      }
+    });
+
+    console.log(`Home: Found ${sections.length} sections`);
+    res.json({ sections });
+  } catch (error) {
+    console.error('Home error:', error.message);
+    res.status(500).json({ error: error.message, sections: [] });
+  }
 });
 
-// --- Extraction Endpoint (legacy support) ---
-app.get('/api/video', async (req, res) => {
-    try {
-        const url = req.query.url;
-        if (!url) return res.status(400).json({ error: "Missing URL" });
+// Search endpoint
+app.get('/api/search', async (req, res) => {
+  try {
+    const query = req.query.q;
+    if (!query) {
+      return res.status(400).json({ error: 'Query parameter required' });
+    }
 
-        const { data: pageHtml } = await axios.get(url, { headers: BASE_HEADERS });
-        const $ = cheerio.load(pageHtml);
-        
-        const iframeSrc = $('#options-0 iframe').attr('data-src') || $('iframe[src*="as-cdn"]').attr('src');
-        if (!iframeSrc) throw new Error("Video player iframe not found");
+    console.log('Search:', query);
+    const cookieStr = await getCookies();
+    const timestamp = Date.now();
+    
+    const response = await axios.get(`${BASE_URL}/search.php?s=${encodeURIComponent(query)}&t=${timestamp}`, {
+      headers: {
+        ...headers,
+        'Cookie': cookieStr,
+        'Referer': `${BASE_URL}/tv/home`
+      },
+      timeout: 20000,
+      validateStatus: () => true
+    });
 
-        const urlObj = new URL(iframeSrc);
-        const videoId = urlObj.pathname.split('/').pop();
-        const baseUrl = `${urlObj.protocol}//${urlObj.host}`;
-        const apiUrl = `${baseUrl}/player/index.php?data=${videoId}&do=getVideo`;
-        
-        const response = await axios.post(apiUrl, 
-            new URLSearchParams({ 
-                'hash': videoId, 
-                'r': 'https://animesalt.top'  // MUST be exact string, not BASE_URL variable
-            }).toString(), 
-            {
-                headers: {
-                    ...BASE_HEADERS,
-                    'Referer': iframeSrc,
-                    'x-requested-with': 'XMLHttpRequest',
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                }
-            }
-        );
+    if (response.status !== 200) {
+      throw new Error(`API returned status ${response.status}`);
+    }
 
-        if (response.data && response.data.videoSource) {
-            return res.json({
-                url: response.data.videoSource,
-                type: "hls",
-                headers: {
-                    "Referer": baseUrl,
-                    "User-Agent": BASE_HEADERS['User-Agent']
-                }
+    const searchData = response.data;
+    const results = (searchData.searchResult || []).map(item => ({
+      id: item.id,
+      title: item.t,
+      poster: `https://img.nfmirrorcdn.top/poster/v/${item.id}.jpg`
+    }));
+
+    console.log(`Search: Found ${results.length} results`);
+    res.json({ results });
+  } catch (error) {
+    console.error('Search error:', error.message);
+    res.status(500).json({ error: error.message, results: [] });
+  }
+});
+
+// Load details endpoint
+app.get('/api/load/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    console.log('Load details for:', id);
+    
+    const cookieStr = await getCookies();
+    const timestamp = Date.now();
+    
+    const response = await axios.get(`${BASE_URL}/post.php?id=${id}&t=${timestamp}`, {
+      headers: {
+        ...headers,
+        'Cookie': cookieStr,
+        'Referer': BASE_URL
+      },
+      timeout: 20000,
+      validateStatus: () => true
+    });
+
+    if (response.status !== 200) {
+      throw new Error(`API returned status ${response.status}`);
+    }
+
+    const data = response.data;
+    let episodes = [];
+
+    // Handle missing or undefined episodes array
+    if (!data.episodes || data.episodes.length === 0 || data.episodes[0] === null) {
+      episodes.push({
+        id,
+        name: data.title || 'Unknown',
+        episode: null,
+        season: null
+      });
+    } else {
+      episodes = data.episodes.filter(ep => ep !== null && ep !== undefined).map(ep => ({
+        id: ep.id,
+        name: ep.t || 'Episode',
+        episode: ep.ep ? ep.ep.replace('E', '') : '1',
+        season: ep.s ? ep.s.replace('S', '') : '1',
+        poster: `https://img.nfmirrorcdn.top/epimg/150/${ep.id}.jpg`,
+        runtime: ep.time || ''
+      }));
+    }
+
+    console.log(`Load: ${data.title}, ${episodes.length} episodes`);
+    res.json({
+      title: data.title || 'Unknown Title',
+      description: data.desc || '',
+      year: data.year || '',
+      cast: data.cast ? data.cast.split(',').map(c => c.trim()).filter(c => c) : [],
+      genre: data.genre ? data.genre.split(',').map(g => g.trim()).filter(g => g) : [],
+      runtime: data.runtime || '',
+      poster: `https://img.nfmirrorcdn.top/poster/v/${id}.jpg`,
+      background: `https://img.nfmirrorcdn.top/poster/h/${id}.jpg`,
+      episodes,
+      type: (!data.episodes || data.episodes.length === 0 || data.episodes[0] === null) ? 'movie' : 'series'
+    });
+  } catch (error) {
+    console.error('Load error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get video links endpoint
+app.get('/api/links/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const title = req.query.title || '';
+    console.log('Get links for:', id, title);
+    
+    const cookieStr = await getCookies();
+    const timestamp = Date.now();
+    
+    const response = await axios.get(`${BASE_URL}/tv/playlist.php?id=${id}&t=${encodeURIComponent(title)}&tm=${timestamp}`, {
+      headers: {
+        ...headers,
+        'Cookie': cookieStr,
+        'Referer': `${BASE_URL}/tv/home`
+      },
+      timeout: 20000,
+      validateStatus: () => true
+    });
+
+    if (response.status !== 200) {
+      throw new Error(`API returned status ${response.status}`);
+    }
+
+    const playlist = response.data;
+    const links = [];
+    const subtitles = [];
+
+    if (Array.isArray(playlist)) {
+      playlist.forEach(item => {
+        if (item.sources && Array.isArray(item.sources)) {
+          item.sources.forEach(source => {
+            const url = source.file.startsWith('http') ? source.file : `${BASE_URL}${source.file.replace('/tv/', '/')}`;
+            links.push({
+              url: url,
+              label: source.label || 'Auto',
+              quality: source.file.includes('q=') ? source.file.split('q=')[1].split('&')[0] : 'Auto'
             });
-        } else {
-            throw new Error("No video source returned from API");
+          });
         }
-    } catch (err) {
-        console.error("Video Extraction Error:", err.message);
-        res.status(500).json({ error: err.message });
+
+        if (item.tracks && Array.isArray(item.tracks)) {
+          item.tracks.filter(t => t.kind === 'captions').forEach(track => {
+            subtitles.push({
+              label: track.label || 'Unknown',
+              file: track.file && track.file.startsWith('http') ? track.file : `https:${track.file}`
+            });
+          });
+        }
+      });
     }
+
+    console.log(`Links: Found ${links.length} links, ${subtitles.length} subtitles`);
+    res.json({ links, subtitles });
+  } catch (error) {
+    console.error('Links error:', error.message);
+    res.status(500).json({ error: error.message, links: [], subtitles: [] });
+  }
 });
 
-const PORT = 3000;
-app.listen(PORT, () => console.log(`Server secure & running at http://localhost:${PORT}`));
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ error: 'Not found' });
+});
+
+// Error handler
+app.use((err, req, res, next) => {
+  console.error('Server error:', err);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Netflix Mirror Server running on port ${PORT}`);
+  console.log(`📺 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🌐 Server started at ${new Date().toISOString()}`);
+});

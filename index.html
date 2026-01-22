@@ -3,304 +3,713 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kineflex - Watch Anime & Movies</title>
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Netflix Mirror</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
-        
-        * { font-family: 'Inter', sans-serif; }
-        
-        body { background: #0a0a0a; }
-        
-        .card-hover {
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
-        
-        .card-hover:hover {
-            transform: scale(1.05);
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #141414;
+            color: #fff;
+            overflow-x: hidden;
         }
-        
-        .custom-scrollbar::-webkit-scrollbar { height: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
-        
-        .shimmer {
-            background: linear-gradient(90deg, #1a1a1a 25%, #2a2a2a 50%, #1a1a1a 75%);
-            background-size: 200% 100%;
-            animation: shimmer 1.5s infinite;
+
+        .header {
+            position: fixed;
+            top: 0;
+            width: 100%;
+            padding: 20px 50px;
+            background: linear-gradient(180deg, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0) 100%);
+            z-index: 1000;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
-        
-        @keyframes shimmer {
-            0% { background-position: 200% 0; }
-            100% { background-position: -200% 0; }
+
+        .logo {
+            font-size: 32px;
+            font-weight: bold;
+            color: #e50914;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .search-container {
+            display: flex;
+            gap: 10px;
+        }
+
+        .search-input {
+            padding: 10px 20px;
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 4px;
+            color: #fff;
+            font-size: 14px;
+            outline: none;
+            width: 300px;
+            transition: all 0.3s;
+        }
+
+        .search-input:focus {
+            background: rgba(255,255,255,0.2);
+            border-color: #fff;
+        }
+
+        .search-btn {
+            padding: 10px 25px;
+            background: #e50914;
+            border: none;
+            border-radius: 4px;
+            color: #fff;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+
+        .search-btn:hover {
+            background: #f40612;
+        }
+
+        .main-content {
+            margin-top: 80px;
+            padding: 20px 50px;
+            min-height: 100vh;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 50px;
+            font-size: 18px;
+        }
+
+        .spinner {
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top: 3px solid #e50914;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .section {
+            margin-bottom: 50px;
         }
 
         .section-title {
-            font-size: 1.75rem;
+            font-size: 24px;
             font-weight: 600;
-            margin-bottom: 1.25rem;
+            margin-bottom: 20px;
+            padding-left: 10px;
         }
 
-        .nav-arrow {
+        .cards-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
+        .card {
+            cursor: pointer;
+            transition: transform 0.3s, box-shadow 0.3s;
+            border-radius: 8px;
+            overflow: hidden;
+            background: #1a1a1a;
+        }
+
+        .card:hover {
+            transform: scale(1.05);
+            box-shadow: 0 8px 30px rgba(229, 9, 20, 0.5);
+        }
+
+        .card-poster {
+            width: 100%;
+            aspect-ratio: 2/3;
+            object-fit: cover;
+            display: block;
+        }
+
+        .card-title {
+            padding: 10px;
+            font-size: 14px;
+            font-weight: 500;
+            text-align: center;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.95);
+            z-index: 2000;
+            overflow-y: auto;
+        }
+
+        .modal-content {
+            max-width: 900px;
+            margin: 50px auto;
+            padding: 40px;
+            position: relative;
+        }
+
+        .close-modal {
             position: absolute;
-            right: 1rem;
-            top: 0.5rem;
-            width: 2rem;
-            height: 2rem;
-            background: rgba(255,255,255,0.1);
+            top: 20px;
+            right: 30px;
+            font-size: 40px;
+            cursor: pointer;
+            color: #fff;
+            background: rgba(0,0,0,0.5);
+            width: 50px;
+            height: 50px;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            cursor: pointer;
-            transition: all 0.2s;
+            transition: background 0.3s;
+            z-index: 10;
         }
 
-        .nav-arrow:hover {
-            background: rgba(255,255,255,0.2);
+        .close-modal:hover {
+            background: rgba(229, 9, 20, 0.8);
         }
 
-        .poster-card {
-            border-radius: 12px;
-            overflow: hidden;
-            position: relative;
-        }
-
-        .poster-card img {
+        .detail-banner {
             width: 100%;
-            height: 100%;
+            height: 400px;
             object-fit: cover;
+            border-radius: 8px;
+            margin-bottom: 30px;
+        }
+
+        .detail-title {
+            font-size: 36px;
+            font-weight: bold;
+            margin-bottom: 15px;
+        }
+
+        .detail-meta {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #ccc;
+        }
+
+        .detail-description {
+            font-size: 16px;
+            line-height: 1.6;
+            margin-bottom: 20px;
+            color: #ddd;
+        }
+
+        .detail-info {
+            margin-bottom: 30px;
+        }
+
+        .info-row {
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+
+        .info-label {
+            color: #999;
+            display: inline-block;
+            width: 100px;
+            font-weight: 600;
+        }
+
+        .episodes-title {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 20px;
+        }
+
+        .episodes-grid {
+            display: grid;
+            gap: 15px;
+        }
+
+        .episode-item {
+            background: #2a2a2a;
+            padding: 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.3s, transform 0.2s;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .episode-item:hover {
+            background: #333;
+            transform: translateX(5px);
+        }
+
+        .episode-poster {
+            width: 150px;
+            height: 85px;
+            object-fit: cover;
+            border-radius: 4px;
+            flex-shrink: 0;
+        }
+
+        .episode-info {
+            flex: 1;
+        }
+
+        .episode-number {
+            font-size: 12px;
+            color: #999;
+            margin-bottom: 5px;
+        }
+
+        .episode-name {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        .play-btn {
+            padding: 15px 40px;
+            background: #e50914;
+            border: none;
+            border-radius: 4px;
+            color: #fff;
+            cursor: pointer;
+            font-size: 18px;
+            font-weight: 600;
+            transition: background 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .play-btn:hover {
+            background: #f40612;
+        }
+
+        .play-btn:before {
+            content: '▶';
+            font-size: 16px;
+        }
+
+        .error-message {
+            background: #d32f2f;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .success-message {
+            background: #388e3c;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        @media (max-width: 768px) {
+            .header {
+                padding: 15px 20px;
+                flex-direction: column;
+                gap: 15px;
+            }
+
+            .logo {
+                font-size: 24px;
+            }
+
+            .main-content {
+                padding: 20px;
+            }
+
+            .search-container {
+                width: 100%;
+            }
+
+            .search-input {
+                width: 100%;
+                flex: 1;
+            }
+
+            .cards-container {
+                grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+                gap: 15px;
+            }
+
+            .modal-content {
+                padding: 20px;
+                margin: 20px;
+            }
+
+            .detail-banner {
+                height: 250px;
+            }
+
+            .detail-title {
+                font-size: 24px;
+            }
+
+            .episode-item {
+                flex-direction: column;
+            }
+
+            .episode-poster {
+                width: 100%;
+            }
         }
     </style>
 </head>
-<body class="text-white">
-    
-    <!-- Header -->
-    <header class="sticky top-0 z-50 bg-black/80 backdrop-blur-lg border-b border-gray-900">
-        <div class="max-w-7xl mx-auto px-6 py-4">
-            <div class="flex items-center justify-between gap-6">
-                <!-- Logo -->
-                <div class="flex items-center gap-3">
-                    <div class="w-12 h-12 bg-yellow-500 rounded-full flex items-center justify-center font-bold text-xl text-black">
-                        KF
-                    </div>
-                    <h1 class="text-3xl font-bold">Kineflex</h1>
-                </div>
-                
-                <!-- Search Bar -->
-                <div class="flex-1 max-w-lg relative">
-                    <div class="relative">
-                        <svg class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-                        </svg>
-                        <input 
-                            type="text" 
-                            id="searchInput"
-                            placeholder="Search"
-                            class="w-full px-4 py-3 pl-12 bg-gray-800/50 border-0 rounded-lg focus:outline-none focus:bg-gray-800 transition-colors text-white placeholder-gray-500"
-                        />
-                    </div>
-                    <div id="searchResults" class="absolute mt-2 w-full bg-gray-900 rounded-lg shadow-2xl border border-gray-800 overflow-hidden hidden max-h-96 overflow-y-auto custom-scrollbar"></div>
-                </div>
-            </div>
+<body>
+    <div class="header">
+        <div class="logo" onclick="loadHome()">NETFLIX</div>
+        <div class="search-container">
+            <input type="text" class="search-input" id="searchInput" placeholder="Search movies and shows...">
+            <button class="search-btn" onclick="search()">Search</button>
         </div>
-    </header>
+    </div>
 
-    <!-- Main Content -->
-    <main class="max-w-7xl mx-auto px-6 py-8">
-        <div id="home-content">
-            <!-- Loading State -->
-            <div class="space-y-12">
-                <div>
-                    <div class="shimmer h-7 w-48 rounded mb-6"></div>
-                    <div class="flex gap-4 overflow-hidden">
-                        <div class="shimmer h-96 w-64 rounded-xl flex-shrink-0"></div>
-                        <div class="shimmer h-96 w-64 rounded-xl flex-shrink-0"></div>
-                        <div class="shimmer h-96 w-64 rounded-xl flex-shrink-0"></div>
-                        <div class="shimmer h-96 w-64 rounded-xl flex-shrink-0"></div>
-                    </div>
-                </div>
-            </div>
+    <div class="main-content" id="mainContent">
+        <div class="loading">
+            <div class="spinner"></div>
+            Loading content...
         </div>
-    </main>
+    </div>
 
-    <!-- Player Modal -->
-    <div id="playerModal" class="fixed inset-0 bg-black z-50 hidden flex items-center justify-center p-4">
-        <div class="max-w-6xl w-full">
-            <div class="flex justify-between items-center mb-4">
-                <h3 id="playerTitle" class="text-2xl font-semibold"></h3>
-                <button onclick="closePlayer()" class="p-2 hover:bg-gray-800 rounded-full transition-colors">
-                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                    </svg>
-                </button>
-            </div>
-            <div class="bg-black rounded-lg overflow-hidden">
-                <video id="videoPlayer" controls class="w-full aspect-video"></video>
-            </div>
+    <div class="modal" id="detailModal">
+        <div class="modal-content" id="modalContent">
+            <span class="close-modal" onclick="closeModal()">&times;</span>
         </div>
     </div>
 
     <script>
-        const API = "http://localhost:3000/api";
-        let searchTimeout;
+        // Automatically detect API base URL (works on Render and localhost)
+        const API_BASE = window.location.origin + '/api';
+        let currentDetails = null;
 
-        // Load the Home Page
+        console.log('API Base URL:', API_BASE);
+
+        // Load home page
         async function loadHome() {
+            const content = document.getElementById('mainContent');
+            content.innerHTML = '<div class="loading"><div class="spinner"></div>Loading content...</div>';
+            closeModal();
+
             try {
-                const res = await fetch(`${API}/home`);
-                const data = await res.json();
+                const response = await fetch(`${API_BASE}/home`);
                 
-                const container = document.getElementById('home-content');
-                container.innerHTML = data.map(section => `
-                    <div class="mb-12 relative">
-                        <div class="flex items-center justify-between mb-6">
-                            <h2 class="section-title">${section.sectionName}</h2>
-                            <div class="nav-arrow">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-                                </svg>
-                            </div>
-                        </div>
-                        <div class="flex gap-4 overflow-x-auto pb-4 custom-scrollbar -mx-2 px-2">
-                            ${section.items.map(item => `
-                                <div class="card-hover flex-shrink-0 w-64 cursor-pointer" onclick="openContent('${item.link}', '${item.type}', '${item.id}', '${item.title.replace(/'/g, "\\'")}')">
-                                    <div class="poster-card h-96 mb-3">
-                                        <img 
-                                            src="${item.poster}" 
-                                            alt="${item.title}"
-                                            onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22256%22 height=%22384%22%3E%3Crect fill=%22%231a1a1a%22 width=%22256%22 height=%22384%22/%3E%3C/svg%3E'"
-                                        />
-                                    </div>
-                                    <h3 class="font-medium text-base line-clamp-1" title="${item.title}">${item.title}</h3>
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.status}`);
+                }
+                
+                const data = await response.json();
+
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                if (!data.sections || data.sections.length === 0) {
+                    content.innerHTML = '<div class="loading">No content available. Please try again later.</div>';
+                    return;
+                }
+
+                let html = '';
+                data.sections.forEach(section => {
+                    if (section.items && section.items.length > 0) {
+                        html += `
+                            <div class="section">
+                                <h2 class="section-title">${section.title}</h2>
+                                <div class="cards-container">
+                                    ${section.items.map(item => `
+                                        <div class="card" onclick="loadDetails('${item.id}')">
+                                            <img src="${item.poster}" alt="${escapeHtml(item.title)}" class="card-poster" onerror="this.src='https://via.placeholder.com/200x300?text=No+Image'">
+                                            <div class="card-title">${escapeHtml(item.title)}</div>
+                                        </div>
+                                    `).join('')}
                                 </div>
-                            `).join('')}
+                            </div>
+                        `;
+                    }
+                });
+
+                content.innerHTML = html || '<div class="loading">No content available</div>';
+            } catch (error) {
+                console.error('Load home error:', error);
+                content.innerHTML = `
+                    <div class="loading">
+                        <div class="error-message">
+                            Error loading content: ${error.message}<br><br>
+                            <button class="search-btn" onclick="loadHome()">Try Again</button>
                         </div>
-                    </div>
-                `).join('');
-            } catch (e) {
-                document.getElementById('home-content').innerHTML = `
-                    <div class="text-center py-20">
-                        <p class="text-red-400 text-xl mb-4">Failed to load content</p>
-                        <button onclick="loadHome()" class="px-6 py-3 bg-yellow-500 text-black font-semibold rounded-lg hover:bg-yellow-600 transition-colors">
-                            Try Again
-                        </button>
                     </div>
                 `;
             }
         }
 
-        // Search Functionality
-        const searchInput = document.getElementById('searchInput');
-        const searchResults = document.getElementById('searchResults');
-
-        searchInput.addEventListener('input', (e) => {
-            clearTimeout(searchTimeout);
-            const query = e.target.value.trim();
-            
-            if (query.length < 2) {
-                searchResults.classList.add('hidden');
+        // Search
+        async function search() {
+            const query = document.getElementById('searchInput').value.trim();
+            if (!query) {
+                alert('Please enter a search term');
                 return;
             }
 
-            searchTimeout = setTimeout(async () => {
-                try {
-                    const res = await fetch(`${API}/search?q=${encodeURIComponent(query)}`);
-                    const data = await res.json();
-                    
-                    if (data.length === 0) {
-                        searchResults.innerHTML = '<p class="p-4 text-gray-500 text-center">No results found</p>';
-                    } else {
-                        searchResults.innerHTML = data.map(item => `
-                            <div 
-                                class="flex items-center gap-4 p-3 hover:bg-gray-800 cursor-pointer transition-colors"
-                                onclick="openContent('${item.link}', '${item.type}', '${item.id}', '${item.title.replace(/'/g, "\\'")}'); searchResults.classList.add('hidden'); searchInput.value='';"
-                            >
-                                <img 
-                                    src="${item.poster}" 
-                                    alt="${item.title}"
-                                    class="w-12 h-18 object-cover rounded"
-                                    onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%22150%22%3E%3Crect fill=%22%231a1a1a%22 width=%22100%22 height=%22150%22/%3E%3C/svg%3E'"
-                                />
-                                <div class="flex-1">
-                                    <h4 class="font-medium text-sm">${item.title}</h4>
-                                    <p class="text-xs text-gray-500 capitalize mt-1">${item.type}</p>
-                                </div>
-                            </div>
-                        `).join('');
-                    }
-                    
-                    searchResults.classList.remove('hidden');
-                } catch (e) {
-                    console.error('Search error:', e);
-                }
-            }, 300);
-        });
-
-        // Close search results when clicking outside
-        document.addEventListener('click', (e) => {
-            if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
-                searchResults.classList.add('hidden');
-            }
-        });
-
-        // Open content (movie or series)
-        function openContent(link, type, id, title) {
-            if (type === 'series') {
-                window.location.href = `test.html?url=${encodeURIComponent(link)}&id=${id}&title=${encodeURIComponent(title)}`;
-            } else {
-                window.location.href = `movie.html?url=${encodeURIComponent(link)}&id=${id}&title=${encodeURIComponent(title)}`;
-            }
-        }
-
-        // Video Player Functions
-        async function playVideo(link, title) {
-            const modal = document.getElementById('playerModal');
-            const titleEl = document.getElementById('playerTitle');
-            const video = document.getElementById('videoPlayer');
-            
-            titleEl.textContent = title;
-            modal.classList.remove('hidden');
+            const content = document.getElementById('mainContent');
+            content.innerHTML = '<div class="loading"><div class="spinner"></div>Searching...</div>';
 
             try {
-                const res = await fetch(`${API}/extract?url=${encodeURIComponent(link)}`);
-                const data = await res.json();
+                const response = await fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}`);
                 
-                if (Hls.isSupported()) {
-                    const hls = new Hls();
-                    hls.loadSource(data.url);
-                    hls.attachMedia(video);
-                    hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                        video.play();
-                    });
-                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                    video.src = data.url;
-                    video.addEventListener('loadedmetadata', () => {
-                        video.play();
-                    });
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.status}`);
                 }
-            } catch (e) {
-                alert("Playback error: " + e.message);
-                closePlayer();
+                
+                const data = await response.json();
+
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                if (!data.results || data.results.length === 0) {
+                    content.innerHTML = `
+                        <div class="loading">
+                            No results found for "${escapeHtml(query)}"<br><br>
+                            <button class="search-btn" onclick="loadHome()">Back to Home</button>
+                        </div>
+                    `;
+                    return;
+                }
+
+                let html = `
+                    <div class="section">
+                        <h2 class="section-title">Search Results for "${escapeHtml(query)}"</h2>
+                        <div class="cards-container">
+                            ${data.results.map(item => `
+                                <div class="card" onclick="loadDetails('${item.id}')">
+                                    <img src="${item.poster}" alt="${escapeHtml(item.title)}" class="card-poster" onerror="this.src='https://via.placeholder.com/200x300?text=No+Image'">
+                                    <div class="card-title">${escapeHtml(item.title)}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+
+                content.innerHTML = html;
+            } catch (error) {
+                console.error('Search error:', error);
+                content.innerHTML = `
+                    <div class="loading">
+                        <div class="error-message">
+                            Error searching: ${error.message}<br><br>
+                            <button class="search-btn" onclick="loadHome()">Back to Home</button>
+                        </div>
+                    </div>
+                `;
             }
         }
 
-        function closePlayer() {
-            const modal = document.getElementById('playerModal');
-            const video = document.getElementById('videoPlayer');
+        // Load details
+        async function loadDetails(id) {
+            const modal = document.getElementById('detailModal');
+            const content = document.getElementById('modalContent');
             
-            video.pause();
-            video.src = '';
-            modal.classList.add('hidden');
+            content.innerHTML = '<span class="close-modal" onclick="closeModal()">&times;</span><div class="loading"><div class="spinner"></div>Loading details...</div>';
+            modal.style.display = 'block';
+
+            try {
+                const response = await fetch(`${API_BASE}/load/${id}`);
+                
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                currentDetails = data;
+
+                let html = `
+                    <span class="close-modal" onclick="closeModal()">&times;</span>
+                    <img src="${data.background}" alt="${escapeHtml(data.title)}" class="detail-banner" onerror="this.src='${data.poster}'">
+                    <h1 class="detail-title">${escapeHtml(data.title)}</h1>
+                    <div class="detail-meta">
+                        <span>${data.year || 'N/A'}</span>
+                        ${data.runtime ? `<span>${data.runtime}</span>` : ''}
+                        ${data.type === 'series' ? `<span>${data.episodes ? data.episodes.length : 0} Episodes</span>` : '<span>Movie</span>'}
+                    </div>
+                    <p class="detail-description">${escapeHtml(data.description) || 'No description available.'}</p>
+                    <div class="detail-info">
+                        ${data.cast && data.cast.length > 0 ? `<div class="info-row"><span class="info-label">Cast:</span> ${escapeHtml(data.cast.join(', '))}</div>` : ''}
+                        ${data.genre && data.genre.length > 0 ? `<div class="info-row"><span class="info-label">Genres:</span> ${escapeHtml(data.genre.join(', '))}</div>` : ''}
+                    </div>
+                `;
+
+                if (data.type === 'movie' && data.episodes && data.episodes.length > 0) {
+                    html += `<button class="play-btn" onclick="playVideo('${data.episodes[0].id}', '${escapeHtml(data.title)}', null, null)">Play Movie</button>`;
+                } else if (data.episodes && data.episodes.length > 0) {
+                    html += `
+                        <h2 class="episodes-title">Episodes</h2>
+                        <div class="episodes-grid">
+                            ${data.episodes.map(ep => `
+                                <div class="episode-item" onclick="playVideo('${ep.id}', '${escapeHtml(data.title)}', ${ep.season}, ${ep.episode})">
+                                    <img src="${ep.poster}" alt="${escapeHtml(ep.name)}" class="episode-poster" onerror="this.src='https://via.placeholder.com/150x85?text=Episode'">
+                                    <div class="episode-info">
+                                        <div class="episode-number">Season ${ep.season} • Episode ${ep.episode}</div>
+                                        <div class="episode-name">${escapeHtml(ep.name)}</div>
+                                        ${ep.runtime ? `<div class="episode-number">${ep.runtime}</div>` : ''}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                } else {
+                    html += `<p>No episodes available.</p>`;
+                }
+
+                content.innerHTML = html;
+            } catch (error) {
+                console.error('Load details error:', error);
+                content.innerHTML = `
+                    <span class="close-modal" onclick="closeModal()">&times;</span>
+                    <div class="loading">
+                        <div class="error-message">
+                            Error loading details: ${error.message}<br><br>
+                            Please try again or select another title.
+                        </div>
+                    </div>
+                `;
+            }
         }
 
-        // Close player with Escape key
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') closePlayer();
+        // Play video
+        async function playVideo(episodeId, title, season, episode) {
+            try {
+                console.log('Fetching video links for:', episodeId);
+                
+                const response = await fetch(`${API_BASE}/links/${episodeId}?title=${encodeURIComponent(title)}`);
+                
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.status}`);
+                }
+                
+                const data = await response.json();
+
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                if (!data.links || data.links.length === 0) {
+                    alert('No video sources available for this content');
+                    return;
+                }
+
+                const videoLink = data.links[0].url;
+                
+                const payload = {
+                    title: title,
+                    episodeId: episodeId,
+                    season: season,
+                    episode: episode,
+                    videoUrl: videoLink,
+                    subtitles: data.subtitles || [],
+                    qualities: data.links.map(l => ({ 
+                        url: l.url, 
+                        label: l.label,
+                        quality: l.quality 
+                    }))
+                };
+
+                console.log('Video Payload:', payload);
+
+                // Check if Android interface is available
+                if (window.AndroidApp && window.AndroidApp.playVideo) {
+                    window.AndroidApp.playVideo(JSON.stringify(payload));
+                    
+                    // Show success message in modal
+                    const modalContent = document.getElementById('modalContent');
+                    const successDiv = document.createElement('div');
+                    successDiv.className = 'success-message';
+                    successDiv.textContent = 'Video sent to Android player!';
+                    modalContent.insertBefore(successDiv, modalContent.firstChild.nextSibling);
+                    
+                    setTimeout(() => successDiv.remove(), 3000);
+                } else {
+                    // Fallback for browser testing
+                    console.log("Android interface not available. Payload:", payload);
+                    
+                    const message = `Playing: ${title}
+${season && episode ? `Season ${season}, Episode ${episode}` : ''}
+
+Video URL: ${videoLink}
+
+Available Qualities: ${payload.qualities.map(q => q.label).join(', ')}
+Subtitles: ${payload.subtitles.length} available
+
+(Android interface not detected - this is test mode)`;
+                    
+                    alert(message);
+                }
+            } catch (error) {
+                console.error('Play video error:', error);
+                alert('Error loading video: ' + error.message);
+            }
+        }
+
+        // Close modal
+        function closeModal() {
+            document.getElementById('detailModal').style.display = 'none';
+            currentDetails = null;
+        }
+
+        // Escape HTML to prevent XSS
+        function escapeHtml(text) {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return String(text).replace(/[&<>"']/g, m => map[m]);
+        }
+
+        // Search on Enter
+        document.getElementById('searchInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') search();
         });
 
-        // Initialize
+        // Close modal on outside click
+        window.onclick = (e) => {
+            const modal = document.getElementById('detailModal');
+            if (e.target === modal) closeModal();
+        };
+
+        // Close modal on Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeModal();
+        });
+
+        // Load home on start
         loadHome();
     </script>
 </body>
