@@ -4,16 +4,21 @@ import * as cheerio from "cheerio";
 import cors from "cors";
 import fs from "fs";
 
+
 const app = express();
 app.use(cors());
 
 const SOURCE_URL = "https://dlhd.dad";
 
 /* ===============================
-   LOAD CDN FILE
+   LOAD CDN FILE (LOCAL)
 ================================ */
 const cdnRaw = JSON.parse(fs.readFileSync("./test.json", "utf8"));
-const cdnChannels = Array.isArray(cdnRaw?.channels) ? cdnRaw.channels : [];
+const cdnChannels = Array.isArray(cdnRaw?.channels)
+  ? cdnRaw.channels
+  : [];
+
+console.log("✅ CDN FILE LOADED:", cdnChannels.length, "channels");
 
 /* ===============================
    HELPERS
@@ -48,13 +53,55 @@ function isLive(title = "") {
   return /(live|now)/i.test(title);
 }
 
-function isIndiaMatch(title = "") {
+function isIndia(title = "") {
   return /(india|ind\b|bharat)/i.test(title);
 }
 
-function parseDate(dateStr) {
-  // "Friday, 23 January 2026"
-  return new Date(dateStr);
+/* ===============================
+   DATE CLEANER (CRITICAL FIX)
+================================ */
+function cleanDate(dateStr = "") {
+  // Example:
+  // "Friday 23rd Jan 2026 - Schedule Time UK GMT"
+
+  return dateStr
+    .replace(/-\s*schedule.*$/i, "")       // remove "- Schedule Time UK GMT"
+    .replace(/(\d+)(st|nd|rd|th)/gi, "$1") // remove ordinal suffix
+    .replace(/,/g, "")
+    .trim();
+}
+
+/* ===============================
+   TIME → IST (FROM UK GMT)
+================================ */
+function toIST(dateStr, timeStr) {
+  const clean = cleanDate(dateStr);
+
+  const d = new Date(`${clean} ${timeStr} GMT`);
+
+  if (isNaN(d.getTime())) {
+    console.error("❌ Invalid date after cleanup:", clean, timeStr);
+    return "TBA";
+  }
+
+  return (
+    d.toLocaleTimeString("en-IN", {
+      timeZone: "Asia/Kolkata",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    }) + " IST"
+  );
+}
+
+/* ===============================
+   PARSE DAY (FOR OLD MATCH FILTER)
+================================ */
+function parseDay(dateStr) {
+  const clean = cleanDate(dateStr);
+  const d = new Date(`${clean} GMT`);
+  d.setHours(0, 0, 0, 0);
+  return d;
 }
 
 /* ===============================
@@ -79,16 +126,13 @@ app.get("/api/schedule", async (req, res) => {
         .text()
         .trim();
 
-      const matchDate = parseDate(dayTitle);
-      matchDate.setHours(0, 0, 0, 0);
-
-      // ❌ REMOVE OLD MATCHES
-      if (matchDate < today) return;
+      const matchDay = parseDay(dayTitle);
+      if (matchDay < today) return; // ❌ remove old matches
 
       $(day)
         .find(".schedule__event")
         .each((__, event) => {
-          const time = $(event).find(".schedule__time").text().trim();
+          const rawTime = $(event).find(".schedule__time").text().trim();
           const title = $(event)
             .find(".schedule__eventTitle")
             .text()
@@ -101,9 +145,19 @@ app.get("/api/schedule", async (req, res) => {
               .text()
               .trim() || "Other";
 
-          // SPORT FILTER
-          if (sportFilter !== "all" &&
-              !sport.toLowerCase().includes(sportFilter)) return;
+          const sportLower = sport.toLowerCase();
+
+          // ✅ ONLY CRICKET & FOOTBALL
+          if (
+            !sportLower.includes("cricket") &&
+            !sportLower.includes("football")
+          ) return;
+
+          // Optional filter
+          if (
+            sportFilter !== "all" &&
+            !sportLower.includes(sportFilter)
+          ) return;
 
           const channels = [];
 
@@ -123,39 +177,37 @@ app.get("/api/schedule", async (req, res) => {
 
           matches.push({
             date: dayTitle,
-            time,
+            time: toIST(dayTitle, rawTime),
             title,
             sport,
             isLive: isLive(title),
-            isIndia: isIndiaMatch(title),
+            isIndia: isIndia(title),
             channels
           });
         });
     });
 
     /* ===============================
-       SORTING LOGIC
+       SORTING
     ================================ */
     matches.sort((a, b) => {
-      // LIVE first
       if (a.isLive !== b.isLive) return b.isLive - a.isLive;
-
-      // India matches next
       if (a.isIndia !== b.isIndia) return b.isIndia - a.isIndia;
-
-      // Earlier matches first
-      return new Date(a.date) - new Date(b.date);
+      return parseDay(a.date) - parseDay(b.date);
     });
 
     res.json({
       source: "DaddyLiveHD",
+      timezone: "Asia/Kolkata",
       updatedAt: new Date().toISOString(),
       total: matches.length,
       data: matches
     });
   } catch (err) {
     console.error("❌ ERROR:", err.message);
-    res.status(500).json({ error: "Failed to build advanced schedule" });
+    res.status(500).json({
+      error: "Failed to build schedule"
+    });
   }
 });
 
@@ -164,6 +216,6 @@ app.get("/api/schedule", async (req, res) => {
 ================================ */
 const PORT = 3000;
 app.listen(PORT, () => {
-  console.log("🚀 Advanced Sports Schedule API running");
+  console.log("🚀 Sports Schedule API running");
   console.log(`👉 http://localhost:${PORT}/api/schedule`);
 });
